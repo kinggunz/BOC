@@ -12,7 +12,11 @@ import kotlin.math.min
 /** Pratinjau banyak overlay: ketuk = pilih, geser = posisi, cubit = ukuran (5%..300%). */
 class PreviewView(c: Context, private val aspect: Float) : View(c) {
     companion object { const val MAX_SCALE = 300f; const val MIN_SCALE = 5f }
-    class Item(var bmp: Bitmap, val layer: Layer)
+    class Item(var bmp: Bitmap, val layer: Layer) {
+        var frames: List<java.io.File> = emptyList()   // frame video untuk diputar
+        var idx = 0
+        var cur: Bitmap? = null
+    }
 
     var items = mutableListOf<Item>()
     var active = 0
@@ -41,6 +45,25 @@ class PreviewView(c: Context, private val aspect: Float) : View(c) {
     private var ly = 0f
 
     private fun cur() = items.getOrNull(active)
+
+    private val tick = object : Runnable {
+        override fun run() {
+            var any = false
+            for (item in items) {
+                if (item.frames.size > 1) {
+                    item.idx = (item.idx + 1) % item.frames.size
+                    val b = try { BitmapFactory.decodeFile(item.frames[item.idx].path) } catch (e: Exception) { null }
+                    if (b != null) item.cur = b
+                    any = true
+                }
+            }
+            if (any) invalidate()
+            postDelayed(this, 100)
+        }
+    }
+
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); postDelayed(tick, 100) }
+    override fun onDetachedFromWindow() { removeCallbacks(tick); super.onDetachedFromWindow() }
 
     fun selectItem(i: Int) {
         if (items.isEmpty()) { active = 0; return }
@@ -96,7 +119,7 @@ class PreviewView(c: Context, private val aspect: Float) : View(c) {
         c.drawLine(frame.left, frame.centerY(), frame.right, frame.centerY(), pFaint)
         items.forEachIndexed { i, it ->
             val r = imgRect(it)
-            c.drawBitmap(it.bmp, null, r, pImg)
+            c.drawBitmap(it.cur ?: it.bmp, null, r, pImg)
             if (i == active && interactive) c.drawRect(r, pBox)
         }
         if (snapX) c.drawLine(frame.centerX(), frame.top, frame.centerX(), frame.bottom, pGuide)

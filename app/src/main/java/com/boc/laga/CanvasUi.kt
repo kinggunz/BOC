@@ -10,11 +10,12 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.text.TextUtils
+import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
 
 /** Ikon yang digambar sendiri dengan Canvas (tanpa emoji, tanpa file gambar). */
-enum class Ic { NONE, PLUS, TRASH, PLAY, STOP, IMAGE, GAME, MOVE, CHECK, LEFT, RIGHT, EYE, PHONE, LAND, LAUNCH }
+enum class Ic { NONE, PLUS, TRASH, PLAY, STOP, IMAGE, GAME, MOVE, CHECK, LEFT, RIGHT, EYE, PHONE, LAND, LAUNCH, CANVAS }
 
 object Cv {
     fun dp(c: Context, v: Float): Float = v * c.resources.displayMetrics.density
@@ -134,6 +135,14 @@ object Cv {
                 path.lineTo(cx + s * 0.55f, cy)
                 path.lineTo(cx - s * 0.3f, cy + s * 0.5f)
                 path.close(); cv.drawPath(path, p)
+            }
+            Ic.CANVAS -> {
+                p.style = Paint.Style.STROKE
+                r.set(cx - s * 1.0f, cy - s * 0.85f, cx + s * 1.0f, cy + s * 0.25f)
+                cv.drawRoundRect(r, s * 0.2f, s * 0.2f, p)
+                cv.drawLine(cx, cy - s * 0.85f, cx, cy + s * 0.25f, p)
+                r.set(cx - s * 0.55f, cy + s * 0.55f, cx + s * 0.55f, cy + s * 0.95f)
+                cv.drawRoundRect(r, s * 0.2f, s * 0.2f, p)
             }
             Ic.NONE -> {}
         }
@@ -354,4 +363,99 @@ class CPanel(ctx: Context, private val fillColor: Int = Color.parseColor("#1B1B1
         p.style = Paint.Style.STROKE; p.strokeWidth = Cv.dp(context, 1f); p.color = border
         rect.inset(p.strokeWidth / 2, p.strokeWidth / 2); cv.drawRoundRect(rect, rad, rad, p)
     }
+}
+
+/** Daftar template: tiap template digambar sebagai gambar kecil, yang dipilih diberi bingkai. */
+class CTemplatePicker(ctx: Context) : View(ctx) {
+    var bitmaps: List<android.graphics.Bitmap> = emptyList(); set(v) { field = v; requestLayout(); invalidate() }
+    var names: List<String> = emptyList()
+    var selected: Int = 0; set(v) { field = v; invalidate() }
+    var onSelect: ((Int) -> Unit)? = null
+
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = Cv.dp(ctx, 12f); typeface = Typeface.DEFAULT_BOLD }
+    private val rect = RectF()
+    private val imgPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+
+    private fun itemH(w: Float): Float {
+        val b = bitmaps.firstOrNull() ?: return Cv.dp(context, 60f)
+        return (w - Cv.dp(context, 16f)) * b.height / b.width + Cv.dp(context, 16f)
+    }
+    private fun block(w: Float) = itemH(w) + Cv.dp(context, 26f)
+
+    override fun onMeasure(w: Int, h: Int) {
+        val ww = MeasureSpec.getSize(w).toFloat()
+        setMeasuredDimension(getDefaultSize(Cv.dp(context, 100f).toInt(), w),
+            (block(ww) * maxOf(1, bitmaps.size)).toInt())
+    }
+
+    override fun onDraw(cv: Canvas) {
+        val w = width.toFloat()
+        val ih = itemH(w); val bl = block(w)
+        for (i in bitmaps.indices) {
+            val top = i * bl
+            val sel = i == selected
+            p.style = Paint.Style.FILL; p.color = Color.parseColor(if (sel) "#201417" else "#141417")
+            rect.set(0f, top, w, top + ih); cv.drawRoundRect(rect, Cv.dp(context, 14f), Cv.dp(context, 14f), p)
+            val pad = Cv.dp(context, 8f)
+            val img = RectF(pad, top + pad, w - pad, top + ih - pad)
+            imgPaint.alpha = if (sel) 255 else 150
+            cv.drawBitmap(bitmaps[i], null, img, imgPaint)
+            p.style = Paint.Style.STROKE; p.strokeWidth = Cv.dp(context, if (sel) 2.5f else 1f)
+            p.color = Color.parseColor(if (sel) "#E53935" else "#2C2C32")
+            rect.set(0f, top, w, top + ih); rect.inset(p.strokeWidth / 2, p.strokeWidth / 2)
+            cv.drawRoundRect(rect, Cv.dp(context, 14f), Cv.dp(context, 14f), p)
+            tp.color = Color.parseColor(if (sel) "#FFFFFF" else "#8A8A92")
+            val nm = (if (sel) "Dipilih  |  " else "") + names.getOrElse(i) { "" }
+            cv.drawText(nm, Cv.dp(context, 6f), top + ih + Cv.dp(context, 17f), tp)
+        }
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_UP && bitmaps.isNotEmpty()) {
+            val i = (e.y / block(width.toFloat())).toInt()
+            if (i in bitmaps.indices) { selected = i; onSelect?.invoke(i) }
+            performClick()
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean = super.performClick()
+}
+
+/** Deretan warna bulat untuk dipilih. */
+class CSwatches(ctx: Context, private val colors: IntArray) : View(ctx) {
+    var selected: Int = colors.firstOrNull() ?: Color.WHITE; set(v) { field = v; invalidate() }
+    var onPick: ((Int) -> Unit)? = null
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun onMeasure(w: Int, h: Int) {
+        setMeasuredDimension(getDefaultSize(Cv.dp(context, 100f).toInt(), w), Cv.dp(context, 52f).toInt())
+    }
+
+    private fun cx(i: Int): Float = width * (i + 0.5f) / colors.size
+
+    override fun onDraw(cv: Canvas) {
+        val r = minOf(Cv.dp(context, 17f), width / colors.size / 2f - Cv.dp(context, 3f))
+        for (i in colors.indices) {
+            p.style = Paint.Style.FILL; p.color = colors[i]
+            cv.drawCircle(cx(i), height / 2f, r, p)
+            p.style = Paint.Style.STROKE; p.strokeWidth = Cv.dp(context, 1f); p.color = Color.argb(90, 255, 255, 255)
+            cv.drawCircle(cx(i), height / 2f, r, p)
+            if (colors[i] == selected) {
+                p.strokeWidth = Cv.dp(context, 2.5f); p.color = Color.parseColor("#E53935")
+                cv.drawCircle(cx(i), height / 2f, r + Cv.dp(context, 4f), p)
+            }
+        }
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_UP) {
+            val i = (e.x / width * colors.size).toInt().coerceIn(0, colors.size - 1)
+            selected = colors[i]; onPick?.invoke(colors[i]); performClick()
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean = super.performClick()
 }

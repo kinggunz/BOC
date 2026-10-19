@@ -4,11 +4,14 @@ import android.app.*
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.graphics.SurfaceTexture
 import android.graphics.drawable.Icon
 import android.media.MediaPlayer
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.Surface
@@ -16,12 +19,13 @@ import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
+import java.io.File
 import kotlin.math.min
 
 class OverlayService : Service() {
     companion object { @Volatile var running = false }
 
-    private class Entry(val layer: Layer, val bmp: Bitmap, val view: View, val player: MediaPlayer? = null)
+    private class Entry(val layer: Layer, val bmp: Bitmap, val view: View, val player: MediaPlayer? = null, val stop: (() -> Unit)? = null)
 
     private lateinit var wm: WindowManager
     private val entries = mutableListOf<Entry>()
@@ -58,6 +62,7 @@ class OverlayService : Service() {
 
     private fun clearViews() {
         entries.forEach {
+            it.stop?.invoke()
             it.player?.let { p -> try { p.release() } catch (e: Exception) { } }
             if (it.view.parent != null) wm.removeView(it.view)
         }
@@ -69,7 +74,13 @@ class OverlayService : Service() {
         for (l in Util.layers(this)) {
             val b = Util.loadBitmap(this, l) ?: continue
             var mp: MediaPlayer? = null
-            val v: View = if (l.video) {
+            var stopper: (() -> Unit)? = null
+            val v: View = if (l.video && l.removeBg && Util.hasProcessed(this, l)) {
+                // video tanpa background: putar rangkaian frame transparan
+                val iv = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_XY }
+                stopper = playFrames(iv, Util.frameFiles(this, l))
+                iv
+            } else if (l.video) {
                 mp = MediaPlayer()
                 videoView(l, mp)
             } else ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_XY; setImageBitmap(b) }
@@ -83,9 +94,25 @@ class OverlayService : Service() {
                 PixelFormat.TRANSLUCENT)
             applyLayout(lp, l, b)
             wm.addView(v, lp)
-            entries.add(Entry(l, b, v, mp))
+            entries.add(Entry(l, b, v, mp, stopper))
         }
         if (entries.isEmpty()) stopSelf()
+    }
+
+    private fun playFrames(iv: ImageView, files: List<File>): () -> Unit {
+        val h = Handler(Looper.getMainLooper())
+        var i = 0
+        val run = object : Runnable {
+            override fun run() {
+                if (files.isNotEmpty()) {
+                    try { BitmapFactory.decodeFile(files[i % files.size].path)?.let { iv.setImageBitmap(it) } } catch (e: Exception) { }
+                    i++
+                }
+                h.postDelayed(this, 100)
+            }
+        }
+        h.post(run)
+        return { h.removeCallbacks(run) }
     }
 
     /** Video overlay: diputar berulang tanpa suara agar tidak bentrok dengan suara game. */

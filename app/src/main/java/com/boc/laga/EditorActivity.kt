@@ -55,7 +55,7 @@ class EditorActivity : Activity() {
         pv = PreviewView(this, 1f).apply {
             fullScreen = true
             bg = Util.loadBg(this@EditorActivity)
-            layers.forEach { l -> Util.loadBitmap(this@EditorActivity, l)?.let { items.add(PreviewView.Item(it, l)) } }
+            layers.forEach { l -> Util.previewItem(this@EditorActivity, l)?.let { items.add(it) } }
             selectItem(0)
             onChange = { save(); refreshPanel() }
             onSelect = { refreshPanel() }
@@ -82,7 +82,7 @@ class EditorActivity : Activity() {
             addView(next, LinearLayout.LayoutParams(dp(56), -2))
         }
         swRm = Switch(this).apply {
-            text = "Hapus background gambar ini"; setTextColor(Color.WHITE); textSize = 13f
+            text = "Hapus background (gambar / video)"; setTextColor(Color.WHITE); textSize = 13f
             setOnCheckedChangeListener { _, on -> if (!uiBusy) toggleRm(on) }
         }
         lblSize = TextView(this).apply { setTextColor(Color.WHITE); textSize = 14f }
@@ -143,7 +143,7 @@ class EditorActivity : Activity() {
         lblLayer.text = if (it == null) "Belum ada overlay"
             else "Overlay ${pv.active + 1} / $n" + (if (it.layer.video) " (video)" else "")
         if (it == null) return
-        swRm.visibility = if (it.layer.video) View.GONE else View.VISIBLE
+        swRm.visibility = View.VISIBLE
         uiBusy = true
         swRm.isChecked = it.layer.removeBg
         seek.progress = it.layer.scale
@@ -160,9 +160,27 @@ class EditorActivity : Activity() {
 
     private fun toggleRm(on: Boolean) {
         val it = pv.items.getOrNull(pv.active) ?: return
+        if (it.layer.video) { toggleVideoRm(it, on); return }
         it.layer.removeBg = on
         Util.loadBitmap(this, it.layer)?.let { b -> it.bmp = b }
         save(); pv.invalidate()
+    }
+
+    /** Hapus background video: semua frame diproses dulu (di latar), lalu diputar tanpa background. */
+    private fun toggleVideoRm(item: PreviewView.Item, on: Boolean) {
+        val l = item.layer
+        val dlg = AlertDialog.Builder(this).setMessage(if (on) "Menghapus background video..." else "Memuat video...")
+            .setCancelable(false).show()
+        Thread {
+            if (on && !Util.hasProcessed(this, l)) Util.processFrames(this, l)
+            runOnUiThread {
+                try { dlg.dismiss() } catch (e: Exception) { }
+                l.removeBg = on && Util.hasProcessed(this, l)
+                item.frames = Util.frameFiles(this, l); item.idx = 0; item.cur = null
+                if (on && !l.removeBg) Toast.makeText(this, "Gagal memproses video", Toast.LENGTH_SHORT).show()
+                save(); refreshPanel(); pv.invalidate()
+            }
+        }.start()
     }
 
     private fun deleteActive() {
@@ -193,11 +211,15 @@ class EditorActivity : Activity() {
         val uri = data?.data ?: return
         if (res != RESULT_OK) return
         if (req == 1) {
-            val l = Util.newLayer(this, layers, uri)
-            val b = l?.let { Util.loadBitmap(this, it) }
-            if (l == null || b == null) { Toast.makeText(this, "Gagal membuka file", Toast.LENGTH_SHORT).show(); return }
-            pv.items.add(PreviewView.Item(b, l))
-            pv.selectItem(pv.items.size - 1); refreshPanel()
+            Util.addAsync(this, layers, uri) { l ->
+                val item = l?.let { Util.previewItem(this, it) }
+                if (l == null || item == null) {
+                    Toast.makeText(this, Util.lastError ?: "Gagal membuka file", Toast.LENGTH_LONG).show()
+                } else {
+                    pv.items.add(item)
+                    pv.selectItem(pv.items.size - 1); refreshPanel()
+                }
+            }
         } else if (req == 2) {
             if (Util.setBg(this, uri)) { pv.bg = Util.loadBg(this); pv.invalidate() }
             else Toast.makeText(this, "Gagal membuka gambar", Toast.LENGTH_SHORT).show()

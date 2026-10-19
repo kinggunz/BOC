@@ -56,6 +56,9 @@ class MainActivity : Activity() {
         }, btn("Pilih Game", Ic.GAME) { pickGame() }))
         gameInfo = CInfo(this, Ic.GAME)
         setPanel.addView(gameInfo, lp(4))
+        setPanel.addView(btn("Canvas", Ic.CANVAS, Color.parseColor("#2A2A2E")) {
+            startActivity(Intent(this, CanvasActivity::class.java))
+        }, lp(4))
 
         val auto = CToggle(this, "Langsung masuk game saat apk dibuka").apply { checked = prefs.getBoolean("auto", false) }
         auto.onChange = { on ->
@@ -88,7 +91,7 @@ class MainActivity : Activity() {
 
     private fun refreshThumb() {
         pv.items = Util.layers(this).mapNotNull { l ->
-            Util.loadBitmap(this, l)?.let { PreviewView.Item(it, l) }
+            Util.previewItem(this, l)
         }.toMutableList()
         pv.landscape = false
         pv.invalidate()
@@ -148,8 +151,9 @@ class MainActivity : Activity() {
         super.onActivityResult(req, res, data)
         val uri = data?.data ?: return
         if (req != 1 || res != RESULT_OK) return
-        if (Util.newLayer(this, Util.layers(this), uri) == null)
-            Toast.makeText(this, "Gagal membuka file", Toast.LENGTH_SHORT).show()
-        else { refreshThumb(); sync() }
+        Util.addAsync(this, Util.layers(this), uri) { l ->
+            if (l == null) Toast.makeText(this, Util.lastError ?: "Gagal membuka file", Toast.LENGTH_LONG).show()
+            else { refreshThumb(); sync() }
+        }
     }
 }

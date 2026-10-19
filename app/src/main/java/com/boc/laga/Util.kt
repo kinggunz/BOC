@@ -1,5 +1,7 @@
 package com.boc.laga
 
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -23,6 +25,9 @@ class Layer(
 }
 
 object Util {
+    const val MAX_VIDEO_MS = 10_000L
+    @Volatile var lastError: String? = null
+
     fun prefs(c: Context) = c.getSharedPreferences("boc", Context.MODE_PRIVATE)
 
     // ---------- daftar layer ----------
@@ -65,6 +70,12 @@ object Util {
                 c.contentResolver.openInputStream(uri).use { ins -> dst.outputStream().use { ins!!.copyTo(it) } }
             } catch (e: Exception) { file(c, l).delete(); return null }
             if (videoFrame(file(c, l).path) == null) { file(c, l).delete(); return null }
+            val dur = videoDuration(file(c, l).path)
+            if (dur > MAX_VIDEO_MS + 400) {
+                file(c, l).delete()
+                lastError = "Video maksimal 10 detik (video ini ${dur / 1000} detik)"
+                return null
+            }
         } else {
             val bmp = decodeUri(c, uri, 1600) ?: return null
             l = Layer(id)
@@ -90,7 +101,112 @@ object Util {
     }
 
     fun deleteLayer(c: Context, ls: MutableList<Layer>, l: Layer) {
-        file(c, l).delete(); ls.remove(l); saveLayers(c, ls)
+        file(c, l).delete()
+        framesDir(c, l, false).deleteRecursively(); framesDir(c, l, true).deleteRecursively()
+        ls.remove(l); saveLayers(c, ls)
+        if (prefs(c).getInt("tplLayerId", -1) == l.id) prefs(c).edit().remove("tplLayerId").apply()
+    }
+
+    fun videoDuration(path: String): Long {
+        val r = MediaMetadataRetriever()
+        return try {
+            r.setDataSource(path)
+            r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        } catch (e: Exception) { 0L } finally { try { r.release() } catch (e: Exception) { } }
+    }
+
+    // ---------- frame video (untuk diputar di pratinjau & hapus background video) ----------
+    fun framesDir(c: Context, l: Layer, processed: Boolean) = File(c.filesDir, (if (processed) "vr" else "vf") + l.id)
+
+    fun hasProcessed(c: Context, l: Layer): Boolean = (framesDir(c, l, true).list()?.size ?: 0) > 0
+
+    /** Daftar frame yang dipakai sekarang: hasil hapus background kalau aktif, kalau tidak frame asli. */
+    fun frameFiles(c: Context, l: Layer): List<File> {
+        if (!l.video) return emptyList()
+        val d = if (l.removeBg && hasProcessed(c, l)) framesDir(c, l, true) else framesDir(c, l, false)
+        return d.listFiles()?.filter { it.isFile }?.sortedBy { it.name } ?: emptyList()
+    }
+
+    private fun scaleDown(f: Bitmap, maxSide: Int): Bitmap {
+        val m = maxOf(f.width, f.height)
+        if (m <= maxSide) return f
+        val k = maxSide.toFloat() / m
+        return Bitmap.createScaledBitmap(f, (f.width * k).toInt().coerceAtLeast(1), (f.height * k).toInt().coerceAtLeast(1), true)
+    }
+
+    /** Ambil frame video (10 fps, maks 100 frame) ke folder. Dipanggil di thread latar. */
+    fun buildFrames(c: Context, l: Layer) {
+        val dir = framesDir(c, l, false)
+        dir.deleteRecursively(); dir.mkdirs()
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(file(c, l).path)
+            val dur = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val n = (dur / 100).toInt().coerceIn(1, 100)
+            for (i in 0 until n) {
+                val tUs = if (n == 1) 0L else dur * 1000L * i / n
+                val f = r.getFrameAtTime(tUs, MediaMetadataRetriever.OPTION_CLOSEST) ?: continue
+                val b = scaleDown(f, 480)
+                File(dir, "%03d.jpg".format(i)).outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+            }
+        } catch (e: Exception) { } finally { try { r.release() } catch (e: Exception) { } }
+    }
+
+    /** Hapus background semua frame video -> PNG transparan. Dipanggil di thread latar. */
+    fun processFrames(c: Context, l: Layer) {
+        if ((framesDir(c, l, false).list()?.size ?: 0) == 0) buildFrames(c, l)   // video lama belum punya frame
+        val src = framesDir(c, l, false).listFiles()?.filter { it.isFile }?.sortedBy { it.name } ?: return
+        val dir = framesDir(c, l, true)
+        dir.deleteRecursively(); dir.mkdirs()
+        for (f in src) {
+            val b = BitmapFactory.decodeFile(f.path) ?: continue
+            val o = removeBg(b)
+            File(dir, f.nameWithoutExtension + ".png").outputStream().use { o.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+    }
+
+    fun previewItem(c: Context, l: Layer): PreviewView.Item? =
+        loadBitmap(c, l)?.let { b -> PreviewView.Item(b, l).also { it.frames = frameFiles(c, l) } }
+
+    /** Tambah media (gambar/video) di thread latar; video diproses frame-nya. */
+    fun addAsync(a: Activity, ls: MutableList<Layer>, uri: Uri, done: (Layer?) -> Unit) {
+        val video = a.contentResolver.getType(uri)?.startsWith("video/") == true
+        val dlg = if (video) AlertDialog.Builder(a).setMessage("Memproses video...").setCancelable(false).show() else null
+        Thread {
+            lastError = null
+            val l = newLayer(a, ls, uri)
+            if (l != null && l.video) buildFrames(a, l)
+            a.runOnUiThread {
+                try { dlg?.dismiss() } catch (e: Exception) { }
+                done(l)
+            }
+        }.start()
+    }
+
+    // ---------- template Canvas -> layer biasa (bisa diatur posisi & ukuran) ----------
+    fun hasTemplate(c: Context): Boolean {
+        val id = prefs(c).getInt("tplLayerId", -1)
+        return layers(c).any { it.id == id }
+    }
+
+    fun applyTemplate(c: Context, bmp: Bitmap) {
+        val ls = layers(c)
+        val tid = prefs(c).getInt("tplLayerId", -1)
+        var l = ls.firstOrNull { it.id == tid }
+        if (l == null) {
+            val id = prefs(c).getInt("nextId", 1)
+            l = Layer(id, scale = 100, px = 0.5f, py = 0.1f, lx = 0.5f, ly = 0.1f)
+            ls.add(l)
+            prefs(c).edit().putInt("nextId", id + 1).putInt("tplLayerId", id).apply()
+        }
+        file(c, l).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        saveLayers(c, ls)
+    }
+
+    fun removeTemplate(c: Context) {
+        val ls = layers(c)
+        val l = ls.firstOrNull { it.id == prefs(c).getInt("tplLayerId", -1) } ?: return
+        deleteLayer(c, ls, l)
     }
 
     fun loadBitmap(c: Context, l: Layer): Bitmap? {
