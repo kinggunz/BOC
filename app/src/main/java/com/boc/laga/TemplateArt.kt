@@ -3,133 +3,193 @@ package com.boc.laga
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RadialGradient
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.Typeface
+import kotlin.math.cos
+import kotlin.math.sin
 
-/** Satu template papan skor: warna sisi kiri & kanan (terang + gelap). */
-class Tpl(val name: String, val left: Int, val leftDark: Int, val right: Int, val rightDark: Int)
+/**
+ * Satu template gaya komik/manga: tiga papan (kiri, kanan, bawah) + bintang.
+ * style: 0 = sinar menyebar + titik halftone, 1 = garis kecepatan + titik, 2 = garis miring + titik.
+ */
+class Tpl(
+    val name: String, val style: Int,
+    val leftBase: Int, val leftLine: Int, val leftDot: Int,
+    val rightBase: Int, val rightLine: Int, val rightDot: Int,
+    val botBase: Int, val botLine: Int, val botDot: Int,
+    val border: Int, val star: Int
+)
 
-/** Template papan skor digambar sepenuhnya dengan Canvas; latar transparan. */
+/** Template papan skor komik digambar sepenuhnya dengan Canvas; latar transparan. */
 object Templates {
     val list = listOf(
-        Tpl("Biru - Merah", Color.parseColor("#2F80FF"), Color.parseColor("#08188A"), Color.parseColor("#FF3B3B"), Color.parseColor("#7A0808")),
-        Tpl("Emas - Hitam", Color.parseColor("#FFB300"), Color.parseColor("#6B3E00"), Color.parseColor("#6A6A78"), Color.parseColor("#09090D")),
-        Tpl("Hijau - Ungu", Color.parseColor("#17E67C"), Color.parseColor("#04472A"), Color.parseColor("#B455FF"), Color.parseColor("#33085E"))
+        // 1. Manga putih (seperti contoh)
+        Tpl("Manga Putih", 0,
+            Color.parseColor("#F4F4F4"), Color.parseColor("#BDBDBD"), Color.parseColor("#8E8E8E"),
+            Color.parseColor("#F4F4F4"), Color.parseColor("#BDBDBD"), Color.parseColor("#8E8E8E"),
+            Color.parseColor("#F3ECCB"), Color.parseColor("#D8CFA6"), Color.parseColor("#B8AD7C"),
+            Color.parseColor("#0A0A0A"), Color.parseColor("#F5B301")),
+        // 2. Komik biru - merah
+        Tpl("Komik Biru - Merah", 1,
+            Color.parseColor("#D6E8FF"), Color.parseColor("#4A90E2"), Color.parseColor("#2F6FC4"),
+            Color.parseColor("#FFD9D9"), Color.parseColor("#E24A4A"), Color.parseColor("#C42F2F"),
+            Color.parseColor("#FFF3C4"), Color.parseColor("#F0C94A"), Color.parseColor("#D9A400"),
+            Color.parseColor("#0A0A0A"), Color.parseColor("#FFC107")),
+        // 3. Pop gelap
+        Tpl("Pop Gelap", 2,
+            Color.parseColor("#22222B"), Color.parseColor("#FFD54F"), Color.parseColor("#FF4081"),
+            Color.parseColor("#22222B"), Color.parseColor("#00E5FF"), Color.parseColor("#B455FF"),
+            Color.parseColor("#2E2E3A"), Color.parseColor("#FF9800"), Color.parseColor("#FFD54F"),
+            Color.parseColor("#FFFFFF"), Color.parseColor("#FFD54F"))
     )
 
     private const val BW = 1200f   // lebar dasar
-    private const val BH = 270f    // tinggi dasar
-    private const val BAR = 190f   // tinggi bilah utama
-
-    private fun mix(a: Int, b: Int): Int = Color.rgb(
-        (Color.red(a) + Color.red(b)) / 2, (Color.green(a) + Color.green(b)) / 2, (Color.blue(a) + Color.blue(b)) / 2)
+    private const val BH = 232f    // tinggi dasar
 
     fun render(t: Tpl, leftName: String, rightName: String, bottom: String, nameColor: Int, bottomColor: Int, width: Int = 1200): Bitmap {
         val k = width / BW
         val bmp = Bitmap.createBitmap(width, (BH * k).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         val cv = Canvas(bmp)
         cv.scale(k, k)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val mid = BW / 2f
-        val bar = RectF(4f, 4f, BW - 4f, BAR)
 
-        // ---- bilah utama ----
-        val clip = Path().apply { addRoundRect(bar, 18f, 18f, Path.Direction.CW) }
-        cv.save(); cv.clipPath(clip)
-        p.style = Paint.Style.FILL
-        p.shader = LinearGradient(0f, 0f, mid, 0f, t.left, t.leftDark, Shader.TileMode.CLAMP)
-        cv.drawRect(0f, 0f, mid, BAR, p)
-        p.shader = LinearGradient(BW, 0f, mid, 0f, t.right, t.rightDark, Shader.TileMode.CLAMP)
-        cv.drawRect(mid, 0f, BW, BAR, p)
-        // sinar diagonal
-        p.shader = null; p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND
-        var i = 0
-        var x = 20f
-        while (x < mid - 80f) {
-            p.strokeWidth = if (i % 3 == 0) 7f else 3f
-            p.color = Color.argb(if (i % 3 == 0) 70 else 45, 255, 255, 255)
-            cv.drawLine(x, BAR, x + 70f, 0f, p)
-            cv.drawLine(BW - x, BAR, BW - x - 70f, 0f, p)
-            x += 46f; i++
-        }
-        // cahaya di tengah
-        p.style = Paint.Style.FILL
-        p.shader = RadialGradient(mid, BAR / 2f, 300f, Color.argb(110, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
-        cv.drawRect(0f, 0f, BW, BAR, p)
-        p.shader = null
-        // gerbang hitam di tengah
-        val gate = Path().apply {
-            moveTo(mid - 78f, 0f); lineTo(mid + 78f, 0f); lineTo(mid + 40f, BAR); lineTo(mid - 40f, BAR); close()
-        }
-        p.color = Color.argb(235, 8, 8, 12); cv.drawPath(gate, p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = 5f; p.color = Color.argb(220, 255, 255, 255)
-        cv.drawLine(mid - 78f, 0f, mid - 40f, BAR, p)
-        cv.drawLine(mid + 78f, 0f, mid + 40f, BAR, p)
-        // petir tipis
-        p.strokeWidth = 4f; p.color = Color.argb(210, 255, 255, 255); p.strokeJoin = Paint.Join.ROUND
-        val bolt1 = Path().apply { moveTo(mid - 86f, 20f); lineTo(mid - 110f, 70f); lineTo(mid - 92f, 78f); lineTo(mid - 124f, 150f) }
-        val bolt2 = Path().apply { moveTo(mid + 86f, 20f); lineTo(mid + 112f, 72f); lineTo(mid + 92f, 82f); lineTo(mid + 126f, 152f) }
-        cv.drawPath(bolt1, p); cv.drawPath(bolt2, p)
-        // kilap atas
-        p.style = Paint.Style.FILL
-        p.shader = LinearGradient(0f, 0f, 0f, BAR * 0.5f, Color.argb(70, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
-        cv.drawRect(0f, 0f, BW, BAR * 0.5f, p)
-        p.shader = null
-        cv.restore()
-        // tepi bilah
-        p.style = Paint.Style.STROKE; p.strokeWidth = 6f; p.color = Color.argb(200, 0, 0, 0)
-        cv.drawRoundRect(bar, 18f, 18f, p)
-        p.strokeWidth = 3f; p.color = Color.argb(150, 255, 255, 255)
-        cv.drawRoundRect(bar, 18f, 18f, p)
+        val lb = RectF(6f, 4f, 406f, 102f)
+        val rb = RectF(794f, 4f, 1194f, 102f)
+        val bb = RectF(385f, 120f, 815f, 224f)
 
-        // ---- nama tim ----
-        val tp = Paint(Paint.ANTI_ALIAS_FLAG)
-        tp.typeface = Typeface.create("sans-serif-black", Typeface.ITALIC)
-        val l = leftName.trim().uppercase(); val r = rightName.trim().uppercase()
-        val maxW = 440f
-        var size = 118f
-        tp.textSize = size
-        while ((tp.measureText(l) > maxW || tp.measureText(r) > maxW) && size > 24f) { size -= 3f; tp.textSize = size }
-        val fm = tp.fontMetrics
-        val by = (bar.top + BAR) / 2f - (fm.ascent + fm.descent) / 2f - 4f
-        drawOutlined(cv, tp, l, mid / 2f - 20f, by, nameColor, size)
-        drawOutlined(cv, tp, r, mid + mid / 2f + 20f, by, nameColor, size)
+        panel(cv, lb, t.leftBase, t.leftLine, t.leftDot, t, 0)
+        panel(cv, rb, t.rightBase, t.rightLine, t.rightDot, t, 1)
+        panel(cv, bb, t.botBase, t.botLine, t.botDot, t, 2)
+        stars(cv, t, bb)
 
-        // ---- pil bawah ----
-        val pw = 520f; val ph = 92f
-        val pill = RectF(mid - pw / 2f, BAR - 22f, mid + pw / 2f, BAR - 22f + ph)
-        p.style = Paint.Style.FILL
-        p.shader = LinearGradient(pill.left, 0f, pill.right, 0f, intArrayOf(t.left, mix(t.left, t.right), t.right), null, Shader.TileMode.CLAMP)
-        cv.drawRoundRect(pill, ph / 2f, ph / 2f, p)
-        p.shader = LinearGradient(0f, pill.top, 0f, pill.centerY(), Color.argb(110, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
-        cv.drawRoundRect(RectF(pill.left + 10f, pill.top + 4f, pill.right - 10f, pill.centerY()), ph / 3f, ph / 3f, p)
-        p.shader = null
-        p.style = Paint.Style.STROKE; p.strokeWidth = 8f; p.color = Color.argb(200, 0, 0, 0)
-        cv.drawRoundRect(pill, ph / 2f, ph / 2f, p)
-        p.strokeWidth = 3.5f; p.color = Color.argb(220, 255, 255, 255)
-        cv.drawRoundRect(pill, ph / 2f, ph / 2f, p)
-
-        val bp = Paint(Paint.ANTI_ALIAS_FLAG)
-        bp.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-        val bt = bottom.trim().uppercase()
-        var bs = 56f
-        bp.textSize = bs
-        while (bp.measureText(bt) > pw - 90f && bs > 18f) { bs -= 2f; bp.textSize = bs }
-        val bfm = bp.fontMetrics
-        drawOutlined(cv, bp, bt, mid, pill.centerY() - (bfm.ascent + bfm.descent) / 2f, bottomColor, bs)
+        val l = leftName.trim().uppercase(); val r = rightName.trim().uppercase(); val b = bottom.trim().uppercase()
+        text(cv, l, lb.centerX(), lb.centerY(), lb.width() - 50f, 86f, nameColor)
+        text(cv, r, rb.centerX(), rb.centerY(), rb.width() - 50f, 86f, nameColor)
+        text(cv, b, bb.centerX(), bb.centerY() + 8f, bb.width() - 70f, 80f, bottomColor)
         return bmp
     }
 
-    /** Teks berkontur gelap, rata tengah di cx. */
-    private fun drawOutlined(cv: Canvas, tp: Paint, s: String, cx: Float, y: Float, color: Int, size: Float) {
+    // ---------- papan ----------
+    private fun panel(cv: Canvas, r: RectF, base: Int, line: Int, dot: Int, t: Tpl, seed: Int) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.style = Paint.Style.FILL; p.color = Color.argb(110, 0, 0, 0)
+        cv.drawRect(r.left + 5f, r.top + 6f, r.right + 5f, r.bottom + 6f, p)
+
+        cv.save(); cv.clipRect(r)
+        p.color = base; cv.drawRect(r, p)
+        when (t.style) {
+            0 -> { burst(cv, r, line, seed); dots(cv, r, dot, true) }
+            1 -> { speed(cv, r, line, seed); dots(cv, r, dot, seed == 0) }
+            else -> { stripes(cv, r, line); dots(cv, r, dot, false) }
+        }
+        cv.restore()
+
+        p.style = Paint.Style.STROKE; p.strokeJoin = Paint.Join.MITER
+        if (t.border == Color.WHITE || t.border == Color.parseColor("#FFFFFF")) {
+            p.strokeWidth = 9f; p.color = Color.BLACK; cv.drawRect(r, p)
+            p.strokeWidth = 4f; p.color = t.border; cv.drawRect(r, p)
+        } else {
+            p.strokeWidth = 6f; p.color = t.border; cv.drawRect(r, p)
+        }
+    }
+
+    private fun burst(cv: Canvas, r: RectF, color: Int, seed: Int) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; this.color = Color.argb(150, Color.red(color), Color.green(color), Color.blue(color)) }
+        val cx = r.centerX() + if (seed == 0) -r.width() * 0.2f else r.width() * 0.2f
+        val cy = r.centerY()
+        val big = r.width() * 2f
+        for (i in 0 until 44) {
+            val a = Math.toRadians(i * 360.0 / 44)
+            val w = Math.toRadians(if (i % 3 == 0) 3.2 else 1.6)
+            val path = Path()
+            path.moveTo(cx, cy)
+            path.lineTo(cx + (big * cos(a - w)).toFloat(), cy + (big * sin(a - w)).toFloat())
+            path.lineTo(cx + (big * cos(a + w)).toFloat(), cy + (big * sin(a + w)).toFloat())
+            path.close(); cv.drawPath(path, p)
+        }
+    }
+
+    private fun speed(cv: Canvas, r: RectF, color: Int, seed: Int) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; this.color = Color.argb(170, Color.red(color), Color.green(color), Color.blue(color)) }
+        val n = 15
+        for (i in 0 until n) {
+            val y = r.top + (i + 0.5f) * r.height() / n
+            p.strokeWidth = 2f + (i * 7 % 5) * 1.5f
+            val off = ((i * 37 + seed * 11) % 100) / 100f
+            val x0 = r.left + off * r.width() * 0.55f
+            cv.drawLine(x0, y, r.right + 10f, y, p)
+        }
+    }
+
+    private fun stripes(cv: Canvas, r: RectF, color: Int) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; this.color = Color.argb(120, Color.red(color), Color.green(color), Color.blue(color)); strokeWidth = 8f }
+        var x = r.left - r.height()
+        while (x < r.right) { cv.drawLine(x, r.bottom, x + r.height(), r.top, p); x += 28f }
+    }
+
+    private fun dots(cv: Canvas, r: RectF, color: Int, graded: Boolean) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; this.color = Color.argb(150, Color.red(color), Color.green(color), Color.blue(color)) }
+        val sp = 14f
+        var row = 0
+        var y = r.top + 4f
+        while (y < r.bottom) {
+            var x = r.left + if (row % 2 == 0) 4f else 4f + sp / 2f
+            while (x < r.right) {
+                val f = if (graded) Math.pow(((x - r.left) / r.width()).toDouble(), 2.2).toFloat() else 0.3f
+                val rad = 5.2f * f
+                if (rad > 0.7f) cv.drawCircle(x, y, rad, p)
+                x += sp
+            }
+            y += sp * 0.5f; row++
+        }
+    }
+
+    // ---------- bintang ----------
+    private fun stars(cv: Canvas, t: Tpl, bb: RectF) {
+        val cx = bb.centerX()
+        val dx = floatArrayOf(-104f, -52f, 0f, 52f, 104f)
+        val dy = floatArrayOf(10f, -6f, -20f, -6f, 10f)
+        val rad = floatArrayOf(25f, 31f, 40f, 31f, 25f)
+        val rot = floatArrayOf(-18f, -9f, 0f, 9f, 18f)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        for (i in 0 until 5) {
+            val path = starPath(cx + dx[i], bb.top + dy[i], rad[i], rot[i])
+            p.style = Paint.Style.STROKE; p.strokeJoin = Paint.Join.ROUND; p.strokeWidth = 8f; p.color = Color.argb(240, 0, 0, 0)
+            cv.drawPath(path, p)
+            p.style = Paint.Style.FILL; p.color = t.star
+            cv.drawPath(path, p)
+            p.style = Paint.Style.FILL; p.color = Color.argb(90, 255, 255, 255)
+            cv.drawCircle(cx + dx[i] - rad[i] * 0.18f, bb.top + dy[i] - rad[i] * 0.2f, rad[i] * 0.18f, p)
+        }
+    }
+
+    private fun starPath(cx: Float, cy: Float, r: Float, rotDeg: Float): Path {
+        val path = Path()
+        val rot = Math.toRadians(rotDeg.toDouble())
+        for (i in 0 until 10) {
+            val rr = if (i % 2 == 0) r else r * 0.46f
+            val a = -Math.PI / 2 + i * Math.PI / 5 + rot
+            val x = cx + (rr * cos(a)).toFloat(); val y = cy + (rr * sin(a)).toFloat()
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close(); return path
+    }
+
+    // ---------- teks ----------
+    private fun text(cv: Canvas, s: String, cx: Float, cy: Float, maxW: Float, startSize: Float, color: Int) {
+        if (s.isBlank()) return
+        val tp = Paint(Paint.ANTI_ALIAS_FLAG)
+        tp.typeface = Typeface.create("sans-serif-black", Typeface.BOLD_ITALIC)
+        var size = startSize
+        tp.textSize = size
+        while (tp.measureText(s) > maxW && size > 18f) { size -= 2f; tp.textSize = size }
+        val fm = tp.fontMetrics
+        val y = cy - (fm.ascent + fm.descent) / 2f
         val w = tp.measureText(s)
-        tp.style = Paint.Style.STROKE; tp.strokeJoin = Paint.Join.ROUND; tp.strokeWidth = size * 0.16f
-        tp.color = Color.argb(235, 0, 0, 0)
+        val lum = 0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color)
+        tp.style = Paint.Style.STROKE; tp.strokeJoin = Paint.Join.ROUND; tp.strokeWidth = size * 0.2f
+        tp.color = if (lum < 70f) Color.WHITE else Color.argb(245, 0, 0, 0)
         cv.drawText(s, cx - w / 2f, y, tp)
         tp.style = Paint.Style.FILL; tp.color = color
         cv.drawText(s, cx - w / 2f, y, tp)

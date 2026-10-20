@@ -76,6 +76,11 @@ class MainActivity : Activity() {
         runPanel.addView(btn("Mulai Game + Overlay", Ic.LAUNCH, red(), 56f) { play(true) }, lp(4))
         col.addView(runPanel, lp(8))
 
+        col.addView(TextView(this).apply {
+            text = "Owner : Gunawan"; textSize = 13f; setTextColor(Color.parseColor("#8A8A92"))
+            gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(6))
+        }, lp(4))
+
         setContentView(ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#0F0F12")); addView(col)
         })

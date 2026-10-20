@@ -24,7 +24,7 @@ class CanvasActivity : Activity() {
     private lateinit var etB: EditText
     private var sel = 0
     private var cName = Color.WHITE
-    private var cBot = Color.parseColor("#F5E6C8")
+    private var cBot = Color.WHITE
 
     private val palette = intArrayOf(
         Color.WHITE, Color.parseColor("#FFEB3B"), Color.parseColor("#00E5FF"), Color.parseColor("#FF9800"),
@@ -45,14 +45,14 @@ class CanvasActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        sel = prefs.getInt("tplIdx", 0).coerceIn(0, Templates.list.size - 1)
-        cName = prefs.getInt("tplCN", cName)
-        cBot = prefs.getInt("tplCB", cBot)
+        sel = prefs.getInt("tplIdx2", 0).coerceIn(0, Templates.list.size - 1)
+        cName = prefs.getInt("tplCN2", cName)
+        cBot = prefs.getInt("tplCB2", cBot)
 
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(26), dp(14), dp(26))
         }
-        col.addView(CHeader(this, "Canvas", "Buat papan skor untuk overlay"), lp(4))
+        col.addView(CHeader(this, "Canvas", "Template teks gaya komik untuk overlay"), lp(4))
 
         val tpl = CPanel(this)
         tpl.addView(CCaption(this, "Pilih template"))
@@ -66,14 +66,14 @@ class CanvasActivity : Activity() {
 
         val txt = CPanel(this)
         txt.addView(CCaption(this, "Teks"))
-        etL = field("Nama tim kiri", prefs.getString("tplL", "RPJ") ?: "RPJ", 14)
-        etR = field("Nama tim kanan", prefs.getString("tplR", "KARBU") ?: "KARBU", 14)
-        etB = field("Teks bawah", prefs.getString("tplB", "BEST OF 3") ?: "BEST OF 3", 18)
+        etL = field("Teks kiri (mis. DRX)", prefs.getString("tplL2", "DRX") ?: "DRX", 14)
+        etR = field("Teks kanan (mis. 17ALWAYS)", prefs.getString("tplR2", "17ALWAYS") ?: "17ALWAYS", 14)
+        etB = field("Teks bawah (mis. BEST OF 3)", prefs.getString("tplB2", "BEST OF 3") ?: "BEST OF 3", 18)
         txt.addView(etL, lp(4)); txt.addView(etR, lp(4)); txt.addView(etB, lp(4))
         col.addView(txt, lp(8))
 
         val clr = CPanel(this)
-        clr.addView(CCaption(this, "Warna nama tim"))
+        clr.addView(CCaption(this, "Warna teks kiri & kanan"))
         clr.addView(CSwatches(this, palette).apply { selected = cName; onPick = { c -> cName = c; rerender() } }, lp(2))
         clr.addView(CCaption(this, "Warna teks bawah"))
         clr.addView(CSwatches(this, palette).apply { selected = cBot; onPick = { c -> cBot = c; rerender() } }, lp(2))
@@ -102,8 +102,8 @@ class CanvasActivity : Activity() {
     }
 
     private fun use() {
-        prefs.edit().putInt("tplIdx", sel).putString("tplL", etL.text.toString()).putString("tplR", etR.text.toString())
-            .putString("tplB", etB.text.toString()).putInt("tplCN", cName).putInt("tplCB", cBot).apply()
+        prefs.edit().putInt("tplIdx2", sel).putString("tplL2", etL.text.toString()).putString("tplR2", etR.text.toString())
+            .putString("tplB2", etB.text.toString()).putInt("tplCN2", cName).putInt("tplCB2", cBot).apply()
         val bmp = Templates.render(Templates.list[sel], txtL(), txtR(), txtB(), cName, cBot, 1200)
         Util.applyTemplate(this, bmp)
         if (OverlayService.running) Util.startOverlay(this)

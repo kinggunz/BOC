@@ -31,6 +31,10 @@ class SplashActivity : Activity() {
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER; setPadding(0, (16 * d).toInt(), 0, 0)
         })
+        root.addView(TextView(this).apply {
+            text = "Owner : Gunawan"; textSize = 15f; setTextColor(Color.parseColor("#B0B0B8"))
+            gravity = Gravity.CENTER; setPadding(0, (6 * d).toInt(), 0, 0)
+        })
         setContentView(root)
         Handler(Looper.getMainLooper()).postDelayed({ next() }, 1500)
     }
